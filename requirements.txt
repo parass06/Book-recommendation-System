@@ -1,0 +1,13 @@
+streamlit
+pandas
+numpy
+scikit-learn
+sentence-transformers
+torch
+yake
+textblob
+gensim
+matplotlib
+wordcloud
+fpdf
+requests
