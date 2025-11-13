@@ -1,3 +1,5 @@
+import torch
+torch.set_num_threads(1)
 # app.py
 import time
 import requests
@@ -49,11 +51,16 @@ def _safe_get(d: dict, path: List[str], default=None):
 def fetch_google_books(query: str, max_results: int = 40, lang_restrict: str = "hi,en") -> List[Dict[str, Any]]:
     """Fetch raw books from Google Books for a query."""
     url = "https://www.googleapis.com/books/v1/volumes"
+
+    # 🔐 API key from Streamlit Secrets
+    api_key = st.secrets.get("BOOKS_KEY", "")
+
     params = {
         "q": query.strip() or "books",
         "maxResults": min(max_results, 40),
         "printType": "books",
-        "langRestrict": lang_restrict
+        "langRestrict": lang_restrict,
+        "key": st.secrets["BOOKS_KEY"]
     }
     try:
         resp = requests.get(url, params=params, timeout=10)
@@ -155,6 +162,10 @@ def compute_semantic_scores(query: str, doc_emb: np.ndarray) -> np.ndarray:
     q_emb = model.encode([query], show_progress_bar=False)
     return cosine_similarity(q_emb, doc_emb)[0]
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def embed_texts_cached(texts):
+    return model.encode(texts, show_progress_bar=False).tolist()
+
 def hybrid_rank(
         books: List[Dict[str, Any]],
         query: str,
@@ -170,7 +181,8 @@ def hybrid_rank(
     """
     # Embeddings on the book descriptions
     summaries = [b.get("summary") or b.get("title", "") for b in books]
-    doc_emb = build_embeddings(summaries)
+    # doc_emb = build_embeddings(summaries)
+    doc_emb = np.array(embed_texts_cached(summaries))
     sem = compute_semantic_scores(query, doc_emb)
     # Normalize semantic to 0..1
     sem_norm = (sem - sem.min()) / (sem.max() - sem.min() + 1e-9)
@@ -217,7 +229,7 @@ with st.container():
             placeholder="उदा.: 'महाभारत जैसी पौराणिक कथा' या 'mythology adventure epic quest'"
         )
     with ccol:
-        max_results = st.slider("Fetch size", min_value=10, max_value=40, value=30, step=5)
+        max_results = st.slider("Fetch size", min_value=10, max_value=20, value=30, step=5)
 
 # Sidebar controls (appear always; populate choices after first fetch)
 st.sidebar.header("⚙️ Settings")
@@ -238,7 +250,10 @@ if user_query.strip():
     with st.spinner("🔄 Fetching live books & enriching…"):
         t0 = time.time()
         raw_books = fetch_google_books(user_query, max_results=max_results)
-        books = enrich_with_openlibrary(raw_books)
+        # books = enrich_with_openlibrary(raw_books)
+        # Skip OpenLibrary fetching (dramatic speed boost)
+        books = raw_books
+
         t1 = time.time()
 
     if not books:
